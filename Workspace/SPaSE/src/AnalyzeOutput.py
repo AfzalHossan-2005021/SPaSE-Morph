@@ -213,7 +213,7 @@ class AnalyzeOutput:
         cost_mat = np.load(cost_mat_path)
 
         distances_left, weights_left = compute_null_distribution(pi, cost_mat, 'left')
-        print('\n\ndistances_left', distances_left.min(), distances_left.max(), '\n\n')
+        print('\ndistances_left', distances_left.min(), distances_left.max())
 
         plt.figure(figsize=(9, 9))
         plt.tick_params(axis='x', labelsize=15)
@@ -224,7 +224,7 @@ class AnalyzeOutput:
         plt.savefig(f'{self.results_path}/{self.dataset}/{self.config_file_name}/Histograms/splitted_slice_left_pathological_score.jpg',format='jpg',dpi=350,bbox_inches='tight',pad_inches=0)
 
         distances_right, weights_right = compute_null_distribution(pi, cost_mat, 'right')
-        print('\n\ndistances_right', distances_right.min(), distances_right.max(), '\n\n')
+        print('distances_right', distances_right.min(), distances_right.max(), '\n')
 
         plt.figure(figsize=(9, 9))
         plt.tick_params(axis='x', labelsize=15)
