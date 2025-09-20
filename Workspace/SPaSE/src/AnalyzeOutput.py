@@ -1,17 +1,18 @@
+import os
+import ot
+import json
+import scipy
+import torch
 import numpy as np
 import pandas as pd
-import torch
-import ot
-import scipy
-import matplotlib.pyplot as plt
-from .DataLoader import DataLoader
-import os
-from .utils import plot_slice_pairwise_alignment_modified, calculate_cost_matrix, mirror, rotate, get_2hop_adatas, compute_null_distribution, visualize_goodness_of_mapping, scale_coords, QC, paste_pairwise_align_modified
 import scanpy as sc
-import json
+import seaborn as sns
+import matplotlib.pyplot as plt
+
 from scipy import stats
 from sklearn import metrics
-import seaborn as sns
+from .DataLoader import DataLoader
+from .utils import compute_null_distribution, scale_coords, QC, paste_pairwise_align_modified
 
 class AnalyzeOutput:
     def __init__(self, config):
@@ -102,7 +103,7 @@ class AnalyzeOutput:
         hexbin = ax2.hexbin(x_coords, y_coords, 
                            extent=[x_coords.min(), x_coords.max(), y_coords.min(), y_coords.max()],
                            C=adata.obs['pathological_score'].values, 
-                           gridsize=100, cmap='plasma_r', reduce_C_function=np.mean)
+                           gridsize=120, cmap='plasma_r', reduce_C_function=np.mean)
         if invert_x:
             f2.gca().invert_xaxis()
         f2.colorbar(hexbin, label='Mean Pathological Score')
@@ -233,8 +234,34 @@ class AnalyzeOutput:
         os.makedirs(f'{self.results_path}/{self.dataset}/{self.config_file_name}/Histograms/', exist_ok=True)
         plt.savefig(f'{self.results_path}/{self.dataset}/{self.config_file_name}/Histograms/splitted_slice_right_pathological_score.jpg',format='jpg',dpi=350,bbox_inches='tight',pad_inches=0)
 
-        p_value = stats.kstest(left_freqs, right_freqs)[1]
-        print('KS test pvalue:', p_value)
+        ks_stat, p_value = stats.kstest(left_freqs, right_freqs)
+        print('KS test statistic:', ks_stat, 'pvalue:', p_value)
+
+        df_p_value = pd.DataFrame({'p_value': [p_value]})
+        df_p_value.to_csv(f'{self.results_path}/{self.dataset}/{self.config_file_name}/p_value.csv')
+
+        # Additional metrics
+        ad_stat, ad_critical, ad_significance = stats.anderson_ksamp([left_freqs, right_freqs])
+        print('Anderson-Darling test statistic:', ad_stat, 'significance level:', ad_significance)
+
+        mw_stat, mw_p_value = stats.mannwhitneyu(left_freqs, right_freqs, alternative='two-sided')
+        print('Mann-Whitney U test statistic:', mw_stat, 'pvalue:', mw_p_value)
+
+        # Cohen's d effect size
+        mean_left = np.mean(left_freqs)
+        mean_right = np.mean(right_freqs)
+        std_left = np.std(left_freqs, ddof=1)
+        std_right = np.std(right_freqs, ddof=1)
+        pooled_std = np.sqrt((std_left**2 + std_right**2) / 2)
+        cohens_d = (mean_left - mean_right) / pooled_std if pooled_std != 0 else 0
+        print("Cohen's d effect size:", cohens_d)
+
+        # Combined metrics
+        metrics_df = pd.DataFrame({
+            'metric': ['KS_statistic', 'KS_p_value', 'AD_statistic', 'AD_significance_level', 'MW_U_statistic', 'MW_U_p_value', 'Cohens_d'],
+            'value': [ks_stat, p_value, ad_stat, ad_significance, mw_stat, mw_p_value, cohens_d]
+        })
+        metrics_df.to_csv(f'{self.results_path}/{self.dataset}/{self.config_file_name}/combined_metrics.csv', index=False)
 
         distances_both = np.array(list(distances_left) + list(distances_right))
         weights_both = np.array(list(weights_left) + list(weights_right))

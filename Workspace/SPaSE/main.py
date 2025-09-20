@@ -45,11 +45,9 @@ def main():
         pi = np.load(config['pi_path'])
         config['pi'] = pi
         output_analyzer = AnalyzeOutput(config)
-        # output_analyzer.visualize_mapping()
-        output_analyzer.visualize_goodness_of_mapping(
-            slice_pos='left')
-        output_analyzer.visualize_goodness_of_mapping(
-            slice_pos='right')
+        
+        output_analyzer.visualize_goodness_of_mapping(slice_pos='left')
+        output_analyzer.visualize_goodness_of_mapping(slice_pos='right')
         
         output_analyzer.divide_into_2_regions_wrt_goodness_score_and_find_DEG()
 

@@ -991,38 +991,6 @@ def compute_null_distribution(pi, cost_mat, scheme):
         
     return distances, weights
 
-def visualize_goodness_of_mapping(adata_left, adata_right, pi, cost_mat, slice_pos='right', invert_x=False):
-        f, ax = plt.subplots()
-        f.set_size_inches(10, 10)
-        if slice_pos == 'left': 
-            adata = adata_left
-            pi = pi
-            cost_mat = cost_mat
-        else:
-            adata = adata_right
-            pi = pi.T
-            cost_mat = cost_mat.T
-
-        # idx = (np.array(list(range(len(pi)))), np.argmax(pi, axis=1))
-        score_mat = pi * cost_mat
-        adata.obs['pathological_score'] = np.sum(score_mat, axis=1)
-
-        x_max = max(adata.obsm['spatial'][:, 0])
-        x_min = min(adata.obsm['spatial'][:, 0])
-
-        y_max = max(adata.obsm['spatial'][:, 1])
-        y_min = min(adata.obsm['spatial'][:, 1])
-
-        x_span = x_max - x_min
-        y_span = y_max - y_min
-
-        ax.axis('off')
-        points = ax.scatter(-adata.obsm['spatial'][:, 0], -adata.obsm['spatial'][:, 1], s=min(x_span, y_span)/8, c=-adata.obs['pathological_score'].values, cmap='afmhot')
-        if invert_x:
-            plt.gca().invert_xaxis()
-        f.colorbar(points)
-
-
 
 def QC(adata):
     # sc.pp.filter_cells(adata, min_genes=200)

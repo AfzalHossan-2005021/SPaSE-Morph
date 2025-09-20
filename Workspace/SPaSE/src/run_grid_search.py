@@ -23,7 +23,7 @@ adata_to_be_synthesized_path = 'None'
 sample_left = adata_left_path.split('/')[-1].split('.')[0]
 sample_right = adata_right_path.split('/')[-1].split('.')[0]
 
-alphas = [0.00001]
+alphas = [0.01]
 lambda_sinkhorns = [0.001, 0.01, 0.1]
 
 for alpha in alphas:
