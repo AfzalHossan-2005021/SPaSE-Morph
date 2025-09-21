@@ -103,7 +103,7 @@ class AnalyzeOutput:
         hexbin = ax2.hexbin(x_coords, y_coords, 
                            extent=[x_coords.min(), x_coords.max(), y_coords.min(), y_coords.max()],
                            C=adata.obs['pathological_score'].values, 
-                           gridsize=120, cmap='plasma_r', reduce_C_function=np.mean)
+                           gridsize=75, cmap='plasma_r', reduce_C_function=np.mean)
         if invert_x:
             f2.gca().invert_xaxis()
         f2.colorbar(hexbin, label='Mean Pathological Score')
