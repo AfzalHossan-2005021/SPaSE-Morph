@@ -439,10 +439,6 @@ def jensenshannon_divergence_backend(X, Y):
     assert X.shape[1] == Y.shape[1], "X and Y do not have the same number of features."
 
     nx = ot.backend.get_backend(X,Y)
-    # nx = ot.backend.NumpyBackend()
-
-    # X = X.cpu().detach().numpy()
-    # Y = Y.cpu().detach().numpy()
 
     print(nx.unique(nx.isnan(X)))
     print(nx.unique(nx.isnan(Y)))
@@ -462,28 +458,11 @@ def jensenshannon_divergence_backend(X, Y):
     print("Finished calculating cost matrix")
     print(nx.unique(nx.isnan(js_dist)))
 
-    if torch.cuda.is_available():
+    # Check if js_dist is a PyTorch tensor, if so convert to numpy
+    if hasattr(js_dist, 'cpu') and hasattr(js_dist, 'detach'):
         return js_dist.cpu().detach().numpy()
     else:
         return js_dist
-    # print("vectorized jsd")
-    # X = X/nx.sum(X,axis=1, keepdims=True)
-    # Y = Y/nx.sum(Y,axis=1, keepdims=True)
-
-    # mid = (X[:, None] + Y) / 2
-    # n = X.shape[0]
-    # m = Y.shape[0]
-    # d = X.shape[1]
-    # l = nx.ones((n, m, d)) * X[:, None, :]
-    # r = nx.ones((n, m, d)) * Y[None, :, :]
-    # l_2d = nx.reshape(l, (-1, l.shape[2]))
-    # r_2d = nx.reshape(r, (-1, r.shape[2]))
-    # m_2d = (l_2d + r_2d) / 2.0
-    # kl_l_m = kl_divergence_corresponding_backend(l_2d, m_2d)
-    # kl_r_m = kl_divergence_corresponding_backend(r_2d, m_2d)
-
-    # js_dist = nx.sqrt((kl_l_m + kl_r_m) / 2.0)
-    # return nx.reshape(js_dist, (n, m))
 
 
 def intersect(lst1, lst2):
