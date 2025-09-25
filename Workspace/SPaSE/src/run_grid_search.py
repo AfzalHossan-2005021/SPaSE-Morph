@@ -6,6 +6,7 @@ from tqdm import tqdm
 parser = argparse.ArgumentParser(prog='SPaSE')
 parser.add_argument('-d', '--dataset')
 parser.add_argument('-l', '--adata_left_path')
+parser.add_argument('-h', '--adata_healthy_right_path')
 parser.add_argument('-r', '--adata_right_path')
 parser.add_argument('-g', '--use_gpu', default=0)
 
@@ -16,14 +17,14 @@ dataset = args.dataset
 adata_left_path = args.adata_left_path
 adata_right_path = args.adata_right_path
 
-adata_healthy_right_path = 'None'
-adata_to_be_synthesized_path = 'None'
+adata_healthy_right_path = args.adata_healthy_right_path
+adata_to_be_synthesized_path = args.adata_left_path
 
 
 sample_left = adata_left_path.split('/')[-1].split('.')[0]
 sample_right = adata_right_path.split('/')[-1].split('.')[0]
 
-alphas = [0.001, 0.0001, 0.00001]
+alphas = [0.0001, 0.001, 0.01, 0.1]
 lambda_sinkhorns = [0.001, 0.01, 0.1]
 
 for alpha in alphas:
