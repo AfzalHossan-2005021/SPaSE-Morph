@@ -415,7 +415,6 @@ def jensenshannon_divergence_backend(X, Y, use_gpu: bool = False):
         return js_dist.cpu().detach().numpy()
     else:
         return js_dist
-    # print("vectorized jsd")
 
 
 def intersect(lst1, lst2):
