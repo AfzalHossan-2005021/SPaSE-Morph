@@ -1,7 +1,7 @@
 import os
 import json
-from tqdm import tqdm
 import argparse
+from tqdm import tqdm
 
 parser = argparse.ArgumentParser(prog='SPaSE')
 parser.add_argument('-dir_name', '--dir_name')

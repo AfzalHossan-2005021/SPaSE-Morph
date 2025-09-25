@@ -1,16 +1,16 @@
 import os
-import tarfile
-import requests
-import shutil
 import gzip
+import shutil
+import tarfile
 import zipfile
+import requests
 import numpy as np
 import pandas as pd
 import scanpy as sc
 import seaborn as sns
+from tqdm import tqdm
 from scipy import sparse
 from anndata import AnnData
-from tqdm import tqdm
 
 
 

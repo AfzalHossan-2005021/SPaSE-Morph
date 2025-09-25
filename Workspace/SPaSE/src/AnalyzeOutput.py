@@ -1,6 +1,5 @@
 import os
 import ot
-import json
 import scipy
 import torch
 import numpy as np
@@ -100,10 +99,13 @@ class AnalyzeOutput:
         ax2.axis('off')
         x_coords = -adata.obsm['spatial'][:, 0]
         y_coords = -adata.obsm['spatial'][:, 1]
-        hexbin = ax2.hexbin(x_coords, y_coords, 
-                           extent=[x_coords.min(), x_coords.max(), y_coords.min(), y_coords.max()],
-                           C=adata.obs['pathological_score'].values, 
-                           gridsize=75, cmap='plasma_r', reduce_C_function=np.mean)
+        hexbin = ax2.hexbin(
+            x_coords, y_coords,
+            extent=[x_coords.min(), x_coords.max(),
+                    y_coords.min(), y_coords.max()],
+            C=adata.obs['pathological_score'].values,
+            gridsize=75, cmap='plasma_r', reduce_C_function=np.mean
+        )
         if invert_x:
             f2.gca().invert_xaxis()
         f2.colorbar(hexbin, label='Mean Pathological Score')
@@ -138,7 +140,13 @@ class AnalyzeOutput:
         plt.close('all')
         plt.figure(figsize = (10, 10))
         plt.axis('off')
-        plt.scatter(self.adata_right.obsm['spatial'][:, 0], self.adata_right.obsm['spatial'][:, 1], c = list(map(lambda x: 1 if x=='good' else 0, pd.Categorical(self.adata_right.obs['region']))), cmap='plasma')
+        plt.scatter(
+            self.adata_right.obsm['spatial'][:, 0],
+            self.adata_right.obsm['spatial'][:, 1],
+            c=list(map(lambda x: 1 if x=='good' else 0,
+                       pd.Categorical(self.adata_right.obs['region']))),
+            cmap='plasma'
+        )
         plt.savefig(f'{self.results_path}/{self.dataset}/{self.config_file_name}/segmentation_based_on_discrete_distribution.jpg')
         plt.close()
 
@@ -153,7 +161,7 @@ class AnalyzeOutput:
         self.adata_left.obs.loc[idx_barcodes, 'region_mapped'] = 'bad'
 
         sns.histplot(self.adata_right.obs['pathological_score'].values, kde=True, color="blue", ax=self.ax_hist_rs, bins=100)
-        self.ax_hist_rs.legend(['Right (D)', 'Null (H)'])
+        self.ax_hist_rs.legend(['Left (H)', 'Right (D)'])
 
         self.fig_hist_rs.savefig(f'{self.results_path}/{self.dataset}/{self.config_file_name}/rs_distribution_both_both_samples.jpg')
 
@@ -196,19 +204,14 @@ class AnalyzeOutput:
         if not self.sinkhorn:
             print('sinkhorn not used')
         
-        pi = paste_pairwise_align_modified(adata_0,
-                                         adata_1,
-                                         alpha=self.alpha,
-                                         G_init=None,
-                                         numItermax=10000,
-                                         dissimilarity=self.dissimilarity,
-                                         sinkhorn=self.sinkhorn,
-                                         cost_mat_path=cost_mat_path,
-                                         verbose=False,
-                                         norm=True,
-                                         backend=backend,
-                                         use_gpu=use_gpu,
-                                         numItermaxEmd=self.numIterMaxEmd)
+        pi = paste_pairwise_align_modified(
+            adata_0, adata_1,
+            alpha=self.alpha, G_init=None, numItermax=10000,
+            dissimilarity=self.dissimilarity, sinkhorn=self.sinkhorn,
+            cost_mat_path=cost_mat_path, verbose=False, norm=True,
+            backend=backend, use_gpu=use_gpu,
+            numItermaxEmd=self.numIterMaxEmd
+        )
 
         cost_mat = np.load(cost_mat_path)
 

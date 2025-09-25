@@ -34,8 +34,6 @@ class PairwiseAlign():
 
             dataset_map = data_loader.read_data(self.dataset)
 
-            self.pi_low_entropy_path = f'{self.results_path}/{self.dataset}/config_{self.dataset}_{self.sample_left}_vs_{self.sample_right}_js.json/Pis/{self.dataset}_uniform_js.npy'
-
             self.adata_left = dataset_map[self.sample_left]
             self.adata_right = dataset_map[self.sample_right]
 
@@ -48,7 +46,7 @@ class PairwiseAlign():
 
     def pairwise_align_sinkhorn(self):
         if not torch.cuda.is_available():
-            if self.use_gpu == True:
+            if self.use_gpu:
                 print("Setting use_gpu to False")
             self.use_gpu = False
 
@@ -63,9 +61,7 @@ class PairwiseAlign():
             
         print("Calculating pi using gcg")
 
-        # print("......... Attention!!! Need to pass in cost_mat_path! ........")
         self.config['cost_mat_path'] = self.cost_mat_path
-        os.makedirs(os.path.dirname(self.cost_mat_path), exist_ok=True)
 
         if self.lambda_sinkhorn == 'inf':
             pi = np.ones((self.adata_left.n_obs, self.adata_right.n_obs)) / (self.adata_left.n_obs * self.adata_right.n_obs)
@@ -73,5 +69,14 @@ class PairwiseAlign():
                 pi = torch.from_numpy(pi)
             return pi, -1000
         
-        pi, fgw_dist = paste_pairwise_align_modified(self.adata_left,self.adata_right,alpha=self.alpha,sinkhorn=self.sinkhorn,lambda_sinkhorn=self.lambda_sinkhorn,dissimilarity=self.dissimilarity,G_init=pi_init, numItermax=10000,cost_mat_path=self.cost_mat_path,return_obj=True,norm=True,verbose=False,backend=backend,use_gpu=self.use_gpu,numInnerItermax=self.numInnerIterMax, method='sinkhorn_log')
+        pi, fgw_dist = paste_pairwise_align_modified(
+            self.adata_left, self.adata_right,
+            alpha=self.alpha, sinkhorn=self.sinkhorn,
+            lambda_sinkhorn=self.lambda_sinkhorn,
+            dissimilarity=self.dissimilarity, G_init=pi_init,
+            numItermax=10000, cost_mat_path=self.cost_mat_path,
+            return_obj=True, norm=True, verbose=False,
+            backend=backend, use_gpu=self.use_gpu,
+            numInnerItermax=self.numInnerIterMax, method='sinkhorn_log'
+        )
         return pi, fgw_dist

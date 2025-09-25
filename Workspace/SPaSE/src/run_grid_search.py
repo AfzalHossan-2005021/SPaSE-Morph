@@ -1,13 +1,13 @@
 import os
 import json
-from tqdm import tqdm
 import argparse
+from tqdm import tqdm
 
 parser = argparse.ArgumentParser(prog='SPaSE')
 parser.add_argument('-d', '--dataset')
 parser.add_argument('-l', '--adata_left_path')
 parser.add_argument('-r', '--adata_right_path')
-
+parser.add_argument('-g', '--use_gpu', default=0)
 
 
 args = parser.parse_args()
@@ -24,7 +24,7 @@ sample_left = adata_left_path.split('/')[-1].split('.')[0]
 sample_right = adata_right_path.split('/')[-1].split('.')[0]
 
 alphas = [0.001, 0.0001, 0.00001]
-lambda_sinkhorns = [0.001, 0.01, 0.1]
+lambda_sinkhorns = [0.01, 0.1, 1.0]
 
 for alpha in alphas:
     for lambda_sinkhorn in lambda_sinkhorns:
@@ -36,7 +36,7 @@ for alpha in alphas:
         numIterMaxEmd = 1000000
         numInnerIterMax = 10000
         init_map_scheme = "uniform"
-        use_gpu = 1
+        use_gpu = int(args.use_gpu)
         QC = 0
 
         config = {
