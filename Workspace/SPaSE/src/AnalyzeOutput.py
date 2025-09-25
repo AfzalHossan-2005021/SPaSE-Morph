@@ -153,7 +153,7 @@ class AnalyzeOutput:
         self.adata_left.obs.loc[idx_barcodes, 'region_mapped'] = 'bad'
 
         sns.histplot(self.adata_right.obs['pathological_score'].values, kde=True, color="blue", ax=self.ax_hist_rs, bins=100)
-        self.ax_hist_rs.legend(['Left (H)', 'Right (D)'])
+        self.ax_hist_rs.legend(['Right (D)', 'Null (H)'])
 
         self.fig_hist_rs.savefig(f'{self.results_path}/{self.dataset}/{self.config_file_name}/rs_distribution_both_both_samples.jpg')
 
@@ -237,9 +237,6 @@ class AnalyzeOutput:
         ks_stat, p_value = stats.kstest(left_freqs, right_freqs)
         print('KS test statistic:', ks_stat, 'pvalue:', p_value)
 
-        df_p_value = pd.DataFrame({'p_value': [p_value]})
-        df_p_value.to_csv(f'{self.results_path}/{self.dataset}/{self.config_file_name}/p_value.csv')
-
         # Additional metrics
         ad_stat, ad_critical, ad_significance = stats.anderson_ksamp([left_freqs, right_freqs])
         print('Anderson-Darling test statistic:', ad_stat, 'significance level:', ad_significance)
@@ -261,7 +258,7 @@ class AnalyzeOutput:
             'metric': ['KS_statistic', 'KS_p_value', 'AD_statistic', 'AD_significance_level', 'MW_U_statistic', 'MW_U_p_value', 'Cohens_d'],
             'value': [ks_stat, p_value, ad_stat, ad_significance, mw_stat, mw_p_value, cohens_d]
         })
-        metrics_df.to_csv(f'{self.results_path}/{self.dataset}/{self.config_file_name}/combined_metrics.csv', index=False)
+        metrics_df.to_csv(f'{self.results_path}/{self.dataset}/{self.config_file_name}/metrics.csv', index=False)
 
         distances_both = np.array(list(distances_left) + list(distances_right))
         weights_both = np.array(list(weights_left) + list(weights_right))
