@@ -10,6 +10,51 @@ from typing import List, Tuple, Optional
 from scipy.spatial.transform import Rotation as R
 
 
+import numpy as np
+import torch
+import ot  # POT
+
+def to_backend_array(x, nx, dtype="float32", use_gpu=True):
+    """
+    Convert input `x` into the POT backend format (NumPy, Torch, JAX, etc.),
+    while handling device placement and dtype.
+
+    Parameters
+    ----------
+    x : np.ndarray | torch.Tensor | other backend array
+        Input data.
+    nx : ot.backend.Backend
+        The POT backend (e.g., ot.backend.TorchBackend(), ot.backend.NumpyBackend()).
+    dtype : str | torch.dtype
+        Desired dtype (default: "float32").
+    use_gpu : bool
+        If True and backend is Torch, move to GPU if available.
+    """
+    
+    # --- Normalize input into backend ---
+    if isinstance(x, np.ndarray):
+        x = nx.from_numpy(x)
+
+    elif isinstance(x, torch.Tensor):
+        if not isinstance(nx, ot.backend.TorchBackend):
+            # Convert Torch tensor → NumPy → target backend
+            x = x.detach().cpu().numpy()
+            x = nx.from_numpy(x)
+
+    # --- Handle Torch backend specifics ---
+    if isinstance(nx, ot.backend.TorchBackend):
+        # Convert dtype
+        if isinstance(dtype, str):
+            dtype = getattr(torch, dtype) if hasattr(torch, dtype) else torch.float32
+        x = x.to(dtype)
+
+        # Move to GPU if requested
+        device = torch.device("cuda" if (use_gpu and torch.cuda.is_available()) else "cpu")
+        x = x.to(device)
+
+    return x
+
+
 def paste_pairwise_align_modified(
         sliceA: AnnData, 
         sliceB: AnnData, 
@@ -27,171 +72,162 @@ def paste_pairwise_align_modified(
         use_gpu: bool = False, 
         return_obj: bool = False, 
         verbose: bool = False, 
-        gpu_verbose: bool = True,
         cost_mat_path: Optional[str] = None,
         **kwargs) -> Tuple[np.ndarray, Optional[int]]:
         """
-        Calculates and returns optimal alignment of two slices. This method is originally from paste module. Modified for this project.
+        Calculates and returns optimal alignment of two slices using Fused Gromov-Wasserstein transport.
+        
+        This function serves as the central hub for all backend and GPU management. All computational
+        backends and device placement decisions are handled here, with other functions following this
+        configuration.
         
         Args:
-            sliceA: Slice A to align.
-            sliceB: Slice B to align.
-            alpha:  Alignment tuning parameter. Note: 0 <= alpha <= 1.
-            dissimilarity: Expression dissimilarity measure: ``'kl'`` or ``'euclidean'`` or ``'jensenshannon'``.
-            use_rep: If ``None``, uses ``slice.X`` to calculate dissimilarity between spots, otherwise uses the representation given by ``slice.obsm[use_rep]``.
-            G_init (array-like, optional): Initial mapping to be used in FGW-OT, otherwise default is uniform mapping.
-            a_distribution (array-like, optional): Distribution of sliceA spots, otherwise default is uniform.
-            b_distribution (array-like, optional): Distribution of sliceB spots, otherwise default is uniform.
-            numItermax: Max number of iterations during FGW-OT.
-            norm: If ``True``, scales spatial distances such that neighboring spots are at distance 1. Otherwise, spatial distances remain unchanged.
-            backend: Type of backend to run calculations. For list of backends available on system: ``ot.backend.get_backend_list()``.
-            use_gpu: If ``True``, use gpu. Otherwise, use cpu. Currently we only have gpu support for Pytorch.
-            return_obj: If ``True``, additionally returns objective function output of FGW-OT.
-            verbose: If ``True``, FGW-OT is verbose.
-            gpu_verbose: If ``True``, print whether gpu is being used to user.
+            sliceA: First slice to align.
+            sliceB: Second slice to align.
+            alpha: Alignment tuning parameter (0 <= alpha <= 1).
+            dissimilarity: Expression dissimilarity measure ('kl', 'euclidean', 'js'/'jensenshannon').
+            sinkhorn: Must be True for this implementation.
+            use_rep: If None, uses slice.X, otherwise uses slice.obsm[use_rep].
+            lambda_sinkhorn: Sinkhorn regularization parameter.
+            G_init: Initial mapping for FGW-OT (optional).
+            a_distribution: Distribution of sliceA spots (optional, defaults to uniform).
+            b_distribution: Distribution of sliceB spots (optional, defaults to uniform).
+            norm: If True, normalizes spatial distances.
+            numItermax: Maximum iterations for FGW-OT.
+            backend: POT backend (NumpyBackend or TorchBackend).
+            use_gpu: If True, uses GPU (requires TorchBackend).
+            return_obj: If True, returns objective function value.
+            verbose: If True, enables verbose output.
+            cost_mat_path: Path to save/load cost matrix (optional).
     
         Returns:
-            - Alignment of spots.
-
-            If ``return_obj = True``, additionally returns:
-            
-            - Objective function output of FGW-OT.
+            np.ndarray: Optimal transport matrix.
+            Optional[float]: Objective function value (if return_obj=True).
         """
 
         print("---------------------------------------")
         print('Inside paste_pairwise_align_modified')
         print("---------------------------------------")
-        
-        # Determine if gpu or cpu is being used
-        if use_gpu:                    
-            if isinstance(backend,ot.backend.TorchBackend):
-                if torch.cuda.is_available():
-                    if gpu_verbose:
-                        print("gpu is available, using gpu.")
-                else:
-                    if gpu_verbose:
-                        print("gpu is not available, resorting to torch cpu.")
-                    use_gpu = False
-            else:
-                print("We currently only have gpu support for Pytorch, please set backend = ot.backend.TorchBackend(). Reverting to selected backend cpu.")
-                use_gpu = False
-        else:
-            if gpu_verbose:
-                print("Using selected backend cpu. If you want to use gpu, set use_gpu = True.")
                 
         # subset for common genes
         common_genes = intersect(sliceA.var.index, sliceB.var.index)
         sliceA = sliceA[:, common_genes]
         sliceB = sliceB[:, common_genes]
 
-        # Backend
-        nx = backend    
+        # Use provided backend
+        nx = backend  
         
         # Calculate spatial distances
         coordinatesA = sliceA.obsm['spatial'].copy()
-        coordinatesA = nx.from_numpy(coordinatesA)
+        coordinatesA = to_backend_array(coordinatesA, nx, use_gpu=use_gpu)
+
         coordinatesB = sliceB.obsm['spatial'].copy()
-        coordinatesB = nx.from_numpy(coordinatesB)
-        
-        if isinstance(nx,ot.backend.TorchBackend):
-            coordinatesA = coordinatesA.float()
-            coordinatesB = coordinatesB.float()
+        coordinatesB = to_backend_array(coordinatesB, nx, use_gpu=use_gpu)
 
-        D_A = ot.dist(coordinatesA,coordinatesA, metric='euclidean')
-        D_B = ot.dist(coordinatesB,coordinatesB, metric='euclidean')
+        # Calculate spatial distance matrices (device placement handled by to_backend_array)
+        D_A = ot.dist(coordinatesA, coordinatesA, metric='euclidean')
+        D_A = to_backend_array(D_A, nx, use_gpu=use_gpu)
 
-        if isinstance(nx,ot.backend.TorchBackend) and use_gpu:
-            D_A = D_A.cuda()
-            D_B = D_B.cuda()
-        
+        D_B = ot.dist(coordinatesB, coordinatesB, metric='euclidean')
+        D_B = to_backend_array(D_B, nx, use_gpu=use_gpu)
+
         # Calculate expression dissimilarity
-        A_X, B_X = nx.from_numpy(to_dense_array(extract_data_matrix(sliceA,use_rep))), nx.from_numpy(to_dense_array(extract_data_matrix(sliceB,use_rep)))
+        A_X = to_dense_array(extract_data_matrix(sliceA,use_rep))
+        A_X = to_backend_array(A_X, nx, use_gpu=use_gpu)
 
-        if isinstance(nx,ot.backend.TorchBackend) and use_gpu:
-            A_X = A_X.cuda()
-            B_X = B_X.cuda()
+        B_X = to_dense_array(extract_data_matrix(sliceB,use_rep))
+        B_X = to_backend_array(B_X, nx, use_gpu=use_gpu)
 
-        if os.path.exists(cost_mat_path):
+        # Handle cost matrix loading/generation
+        M = None
+        expected_shape = (sliceA.shape[0], sliceB.shape[0])
+        
+        if cost_mat_path and os.path.exists(cost_mat_path):
             print("Loading cost matrix from file system...")
             M_loaded = np.load(cost_mat_path)
-            # Validate that the loaded cost matrix has the correct shape
-            expected_shape = (sliceA.shape[0], sliceB.shape[0])
-            if M_loaded.shape != expected_shape:
-                print(f"Loaded cost matrix shape {M_loaded.shape} does not match expected shape {expected_shape}. Regenerating...")
-                M = None  # Force regeneration
-            else:
+            if M_loaded.shape == expected_shape:
                 M = M_loaded
-        else:
-            print("cost_mat_path does not exist.")
-            M = None
+            else:
+                print(f"Loaded cost matrix shape {M_loaded.shape} does not match expected shape {expected_shape}. Regenerating...")
+        elif cost_mat_path:
+            print("Cost matrix path provided but file does not exist. Generating new cost matrix...")
             
         if M is None:
-            if dissimilarity.lower()=='euclidean' or dissimilarity.lower()=='euc':
-                M = ot.dist(A_X,B_X)
-            elif dissimilarity.lower()=='kl':
+            # Generate cost matrix based on dissimilarity measure
+            dissimilarity_lower = dissimilarity.lower()
+            if dissimilarity_lower in ['euclidean', 'euc']:
+                M = ot.dist(A_X, B_X)
+            elif dissimilarity_lower == 'kl':
                 s_A = A_X + 0.01
                 s_B = B_X + 0.01
-                M = kl_divergence_backend(s_A, s_B)
-            elif dissimilarity.lower()=='js' or dissimilarity.lower()=='jensenshannon':
+                M = kl_divergence_backend(s_A, s_B, nx)
+            elif dissimilarity_lower in ['js', 'jensenshannon']:
                 s_A = A_X + 0.01
                 s_B = B_X + 0.01
-                M = jensenshannon_divergence_backend(s_A, s_B)
-            if cost_mat_path is not None:
-                np.save(cost_mat_path, M)
-        M = nx.from_numpy(M)
-
-        if isinstance(nx,ot.backend.TorchBackend) and use_gpu:
-            M = M.cuda()
+                M = jensenshannon_divergence_backend(s_A, s_B, nx)
+            else:
+                raise ValueError(f"Unknown dissimilarity measure: {dissimilarity}")
+                
+            # Save cost matrix if path is provided
+            if cost_mat_path:
+                np.save(cost_mat_path, nx.to_numpy(M))
+                
+        M = to_backend_array(M, nx, use_gpu=use_gpu)
         
-        # init distributions 
+        # Initialize probability distributions
         if a_distribution is None:
-            a = nx.ones((sliceA.shape[0],))/sliceA.shape[0]
-        else:
-            a = nx.from_numpy(a_distribution)
+            a = np.ones((sliceA.shape[0],)) / sliceA.shape[0]
+        a = to_backend_array(a, nx, use_gpu=use_gpu)
             
         if b_distribution is None:
-            b = nx.ones((sliceB.shape[0],))/sliceB.shape[0]
-        else:
-            b = nx.from_numpy(b_distribution)
+            b = np.ones((sliceB.shape[0],)) / sliceB.shape[0]
+        b = to_backend_array(b, nx, use_gpu=use_gpu)
 
-        if isinstance(nx,ot.backend.TorchBackend) and use_gpu:
-            a = a.cuda()
-            b = b.cuda()
-        
+        # Normalize spatial distances if requested
         if norm:
-            D_A /= nx.min(D_A[D_A>0])
-            D_B /= nx.min(D_B[D_B>0])
+            D_A /= nx.min(D_A[D_A > 0])
+            D_B /= nx.min(D_B[D_B > 0])
         
-        # Run OT
+        # Handle initial mapping
         if G_init is not None:
-            G_init = nx.from_numpy(G_init)
-            if isinstance(nx,ot.backend.TorchBackend):
-                G_init = G_init.float()
-                if use_gpu:
-                    G_init.cuda()
-            # Validate G_init shape
+            G_init = to_backend_array(G_init, nx, use_gpu=use_gpu)
             expected_g_shape = (sliceA.shape[0], sliceB.shape[0])
             if G_init.shape != expected_g_shape:
                 print(f"Warning: G_init has shape {G_init.shape} but expected shape {expected_g_shape}. Using default initialization.")
                 G_init = None
         
-        assert(sinkhorn == 1)
+        # Ensure sinkhorn mode is enabled
+        if not sinkhorn:
+            raise ValueError("This implementation requires sinkhorn=True")
 
-        pi, logw = my_fused_gromov_wasserstein_gcg(M, D_A, D_B, a, b, lambda_sinkhorn=lambda_sinkhorn, G_init = G_init, loss_fun='square_loss', alpha= alpha, log=True, numItermax=numItermax,verbose=verbose, use_gpu = use_gpu, **kwargs)
+        # Run optimal transport optimization
+        pi, logw = my_fused_gromov_wasserstein_gcg(
+            M, D_A, D_B, a, b, nx, 
+            lambda_sinkhorn=lambda_sinkhorn, 
+            G_init=G_init, 
+            loss_fun='square_loss', 
+            alpha=alpha, 
+            log=True, 
+            numItermax=numItermax, 
+            verbose=verbose, 
+            **kwargs
+        )
         
+        # Convert results back to numpy and clean up GPU memory if needed
         pi = nx.to_numpy(pi)
         obj = nx.to_numpy(logw['fgw_dist'])
-        if isinstance(backend,ot.backend.TorchBackend) and use_gpu:
+        
+        # Clear GPU cache to free memory after large computation
+        if isinstance(nx, ot.backend.TorchBackend):
             torch.cuda.empty_cache()
 
-        if return_obj:
-            return pi, obj
-        return pi
+        return (pi, obj) if return_obj else pi
 
-def my_fused_gromov_wasserstein_gcg(M, C1, C2, p, q, lambda_sinkhorn=1, G_init = None, loss_fun='square_loss', alpha=0.5, armijo=False, log=False,numItermax=200, use_gpu = False, **kwargs):
+
+def my_fused_gromov_wasserstein_gcg(M, C1, C2, p, q, nx, lambda_sinkhorn=1, G_init = None, loss_fun='square_loss', alpha=0.5, log=False, numItermax=200, **kwargs):
         """
         Adapted fused_gromov_wasserstein with the added capability of defining a G_init (inital mapping).
-        Also added capability of utilizing different POT backends to speed up computation.
+        All tensors and backend are provided by the calling function.
         
         For more info, see: https://pythonot.github.io/gen_modules/ot.gromov.html
         """
@@ -203,12 +239,15 @@ def my_fused_gromov_wasserstein_gcg(M, C1, C2, p, q, lambda_sinkhorn=1, G_init =
         print(f"C1 shape: {C1.shape}")
         print(f"C2 shape: {C2.shape}")
         print("---------------------------------------")
-
-        p, q = ot.utils.list_to_array(p, q)
-
-        p0, q0, C10, C20, M0 = p, q, C1, C2, M
-
-        nx = ot.backend.get_backend(p0, q0, C10, C20, M0)
+        
+        # Print backend information for all variables
+        print(f"Backend nx: {type(nx)}")
+        print(f"M backend: {type(M)}" + (f", device: {M.device}" if hasattr(M, 'device') else ""))
+        print(f"C1 backend: {type(C1)}" + (f", device: {C1.device}" if hasattr(C1, 'device') else ""))
+        print(f"C2 backend: {type(C2)}" + (f", device: {C2.device}" if hasattr(C2, 'device') else ""))
+        print(f"p backend: {type(p)}" + (f", device: {p.device}" if hasattr(p, 'device') else ""))
+        print(f"q backend: {type(q)}" + (f", device: {q.device}" if hasattr(q, 'device') else ""))
+        print("---------------------------------------")
 
         # Validate matrix shapes
         n_a, n_b = len(p), len(q)
@@ -227,8 +266,13 @@ def my_fused_gromov_wasserstein_gcg(M, C1, C2, p, q, lambda_sinkhorn=1, G_init =
         else:
             G0 = (1/nx.sum(G_init)) * G_init
             print(f"G0 from G_init with shape: {G0.shape}")
-        if use_gpu:
-            G0 = G0.cuda()
+        
+        # Print backend information for computed variables
+        print(f"constC backend: {type(constC)}" + (f", device: {constC.device}" if hasattr(constC, 'device') else ""))
+        print(f"hC1 backend: {type(hC1)}" + (f", device: {hC1.device}" if hasattr(hC1, 'device') else ""))
+        print(f"hC2 backend: {type(hC2)}" + (f", device: {hC2.device}" if hasattr(hC2, 'device') else ""))
+        print(f"G0 backend: {type(G0)}" + (f", device: {G0.device}" if hasattr(G0, 'device') else ""))
+        print("---------------------------------------")
 
         def f(G):
             return ot.gromov.gwloss(constC, hC1, hC2, G)
@@ -266,43 +310,20 @@ def filter_for_common_genes(
         slices[i] = slices[i][:, common_genes]
     print('Filtered all slices for common genes. There are ' + str(len(common_genes)) + ' common genes.')
 
-def kl_divergence(X, Y):
+
+def kl_divergence_backend(X, Y, nx):
     """
-    Returns pairwise KL divergence (over all pairs of samples) of two matrices X and Y.
+    Returns pairwise KL divergence using the provided backend.
 
     Args:
-        X: np array with dim (n_samples by n_features)
-        Y: np array with dim (m_samples by n_features)
+        X: backend tensor with dim (n_samples by n_features)
+        Y: backend tensor with dim (m_samples by n_features)
+        nx: POT backend to use for computation
 
     Returns:
-        D: np array with dim (n_samples by m_samples). Pairwise KL divergence matrix.
+        D: backend tensor with dim (n_samples by m_samples). Pairwise KL divergence matrix.
     """
     assert X.shape[1] == Y.shape[1], "X and Y do not have the same number of features."
-
-    X = X/X.sum(axis=1, keepdims=True)
-    Y = Y/Y.sum(axis=1, keepdims=True)
-    log_X = np.log(X)
-    log_Y = np.log(Y)
-    X_log_X = np.matrix([np.dot(X[i],log_X[i].T) for i in range(X.shape[0])])
-    D = X_log_X.T - np.dot(X,log_Y.T)
-    return np.asarray(D)
-
-def kl_divergence_backend(X, Y):
-    """
-    Returns pairwise KL divergence (over all pairs of samples) of two matrices X and Y.
-
-    Takes advantage of POT backend to speed up computation.
-
-    Args:
-        X: np array with dim (n_samples by n_features)
-        Y: np array with dim (m_samples by n_features)
-
-    Returns:
-        D: np array with dim (n_samples by m_samples). Pairwise KL divergence matrix.
-    """
-    assert X.shape[1] == Y.shape[1], "X and Y do not have the same number of features."
-
-    nx = ot.backend.get_backend(X,Y)
 
     X = X/nx.sum(X,axis=1, keepdims=True)
     Y = Y/nx.sum(Y,axis=1, keepdims=True)
@@ -311,24 +332,21 @@ def kl_divergence_backend(X, Y):
     X_log_X = nx.einsum('ij,ij->i',X,log_X)
     X_log_X = nx.reshape(X_log_X,(1,X_log_X.shape[0]))
     D = X_log_X.T - nx.dot(X,log_Y.T)
-    return nx.to_numpy(D)
+    return D
 
-def kl_divergence_corresponding_backend(X, Y):
+def kl_divergence_corresponding_backend(X, Y, nx):
     """
-    Returns pairwise KL divergence (over all pairs of samples) of two matrices X and Y.
-
-    Takes advantage of POT backend to speed up computation.
+    Returns corresponding KL divergence using the provided backend.
 
     Args:
-        X: np array with dim (n_samples by n_features)
-        Y: np array with dim (m_samples by n_features)
+        X: backend tensor with dim (n_samples by n_features)
+        Y: backend tensor with dim (n_samples by n_features)
+        nx: POT backend to use for computation
 
     Returns:
-        D: np array with dim (n_samples by m_samples). Pairwise KL divergence matrix.
+        D: backend tensor with dim (n_samples by 1). Corresponding KL divergence.
     """
     assert X.shape[1] == Y.shape[1], "X and Y do not have the same number of features."
-
-    nx = ot.backend.get_backend(X,Y)
 
     X = X/nx.sum(X,axis=1, keepdims=True)
     Y = Y/nx.sum(Y,axis=1, keepdims=True)
@@ -340,63 +358,52 @@ def kl_divergence_corresponding_backend(X, Y):
     X_log_Y = nx.einsum('ij,ij->i',X,log_Y)
     X_log_Y = nx.reshape(X_log_Y,(1,X_log_Y.shape[0]))
     D = X_log_X.T - X_log_Y.T
-    return nx.to_numpy(D)
+    return D
 
-def jensenshannon_distance_1_vs_many_backend(X, Y, use_gpu: bool = False):
+def jensenshannon_distance_1_vs_many_backend(X, Y, nx):
     """
-    Returns pairwise Jensenshannon distance (over all pairs of samples) of two matrices X and Y.
-
-    Takes advantage of POT backend to speed up computation.
+    Returns pairwise Jensen-Shannon distance using the provided backend.
 
     Args:
-        X: np array with dim (n_samples by n_features)
-        Y: np array with dim (m_samples by n_features)
+        X: backend tensor with dim (1 by n_features)
+        Y: backend tensor with dim (m_samples by n_features)
+        nx: POT backend to use for computation
 
     Returns:
-        D: np array with dim (n_samples by m_samples). Pairwise KL divergence matrix.
+        js_dist: backend tensor with Jensen-Shannon distances.
     """
     assert X.shape[1] == Y.shape[1], "X and Y do not have the same number of features."
     assert X.shape[0] == 1
-    # device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
-    nx = ot.backend.get_backend(X,Y)
     X = nx.concatenate([X] * Y.shape[0], axis=0)
     X = X/nx.sum(X,axis=1, keepdims=True)
     Y = Y/nx.sum(Y,axis=1, keepdims=True)
     M = (X + Y) / 2.0
-    kl_X_M = torch.from_numpy(kl_divergence_corresponding_backend(X, M))
-    kl_Y_M = torch.from_numpy(kl_divergence_corresponding_backend(Y, M))
-    if use_gpu and torch.cuda.is_available():
-        kl_X_M = kl_X_M.cuda()
-        kl_Y_M = kl_Y_M.cuda()
+    kl_X_M = kl_divergence_corresponding_backend(X, M, nx)
+    kl_Y_M = kl_divergence_corresponding_backend(Y, M, nx)
     js_dist = nx.sqrt((kl_X_M + kl_Y_M) / 2.0).T[0]
     return js_dist
 
-def jensenshannon_divergence_backend(X, Y, use_gpu: bool = False):
-    """
-    This function is added by Nuwaisir
-    
-    Returns pairwise JS divergence (over all pairs of samples) of two matrices X and Y.
 
-    Takes advantage of POT backend to speed up computation.
+def jensenshannon_divergence_backend(X, Y, nx):
+    """
+    Returns pairwise Jensen-Shannon divergence using the provided backend.
 
     Args:
-        X: np array with dim (n_samples by n_features)
-        Y: np array with dim (m_samples by n_features)
+        X: backend tensor with dim (n_samples by n_features)
+        Y: backend tensor with dim (m_samples by n_features)
+        nx: POT backend to use for computation
 
     Returns:
-        D: np array with dim (n_samples by m_samples). Pairwise KL divergence matrix.
+        D: backend tensor with dim (n_samples by m_samples). Pairwise JS divergence matrix.
     """
     print("Calculating cost matrix")
 
     assert X.shape[1] == Y.shape[1], "X and Y do not have the same number of features."
 
-    nx = ot.backend.get_backend(X,Y)
-
     print(nx.unique(nx.isnan(X)))
     print(nx.unique(nx.isnan(Y)))
         
-    
     X = X/nx.sum(X, axis=1, keepdims=True)
     Y = Y/nx.sum(Y, axis=1, keepdims=True)
 
@@ -406,15 +413,12 @@ def jensenshannon_divergence_backend(X, Y, use_gpu: bool = False):
     js_dist = nx.zeros((n, m))
 
     for i in tqdm(range(n)):
-        js_dist[i, :] = jensenshannon_distance_1_vs_many_backend(X[i:i+1], Y, use_gpu)
+        js_dist[i, :] = jensenshannon_distance_1_vs_many_backend(X[i:i+1], Y, nx)
         
     print("Finished calculating cost matrix")
     print(nx.unique(nx.isnan(js_dist)))
 
-    if use_gpu:
-        return js_dist.cpu().detach().numpy()
-    else:
-        return js_dist
+    return js_dist
 
 
 def intersect(lst1, lst2):
@@ -436,33 +440,9 @@ def intersect(lst1, lst2):
 ## Convert a sparse matrix into a dense np array
 to_dense_array = lambda X: X.toarray() if isinstance(X,scipy.sparse.csr.spmatrix) else np.array(X)
 
+
 ## Returns the data matrix or representation
 extract_data_matrix = lambda adata,rep: adata.X if rep is None else adata.obsm[rep]
-
-
-
-def calculate_cost_matrix(adata_left, adata_right, use_gpu: bool = False):
-    backend = ot.backend.NumpyBackend()
-    if use_gpu:
-        backend=ot.backend.TorchBackend()
-    nx = backend
-    use_rep = None
-
-    common_genes = intersect(adata_left.var.index, adata_right.var.index)
-    adata_left = adata_left[:, common_genes]
-    adata_right = adata_right[:, common_genes]
-
-    A_X, B_X = nx.from_numpy(to_dense_array(extract_data_matrix(adata_left,use_rep))), nx.from_numpy(to_dense_array(extract_data_matrix(adata_right,use_rep)))
-    if isinstance(nx,ot.backend.TorchBackend) and use_gpu:
-        A_X = A_X.cuda()
-        B_X = B_X.cuda()
-    s_A = A_X + 0.01
-    s_B = B_X + 0.01
-    M = kl_divergence_backend(s_A, s_B)
-    M = nx.from_numpy(M)
-    if use_gpu:
-        return M.numpy()
-    return M
 
 
 def rotate(v, angle_deg, center=(0, 0)):
@@ -515,6 +495,7 @@ def QC(adata):
     adata = adata[:, adata.var.highly_variable]
     sc.pp.regress_out(adata, ['total_counts', 'pct_counts_mt'])
     sc.pp.scale(adata, max_value=10)
+
 
 def scale_coords(adata, key_name):
     adata.obsm[key_name] = adata.obsm[key_name].astype('float')
