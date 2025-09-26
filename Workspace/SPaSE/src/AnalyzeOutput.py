@@ -1,7 +1,9 @@
 import os
 import ot
+import math
 import scipy
 import torch
+import random
 import numpy as np
 import pandas as pd
 import scanpy as sc
@@ -125,7 +127,7 @@ class AnalyzeOutput:
         if self.config['adata_healthy_right_path'] != 'None':
             adata_healthy_right = sc.read(self.config['adata_healthy_right_path'])
         else:
-            adata_healthy_right = 'None'
+            adata_healthy_right = None
 
         right_threshold = self.get_goodness_threshold_from_null_distribution(adata_to_be_synthesized, adata_healthy_right)
 
@@ -166,34 +168,40 @@ class AnalyzeOutput:
         self.fig_hist_rs.savefig(f'{self.results_path}/{self.dataset}/{self.config_file_name}/rs_distribution_both_both_samples.jpg')
 
         if self.grid_search:
-            if 'is_remodeled_for_grid_search' in self.adata_right.obs.columns:
-                actual = self.adata_right.obs['is_remodeled_for_grid_search'].values
-                predicted = np.array(list(map(lambda x: 1 if x == 'bad' else 0, self.adata_right.obs['region'].values)))
+            if 'is_remodeled_for_grid_search' not in self.adata_right.obs.columns:
+                print("Warning: 'is_remodeled_for_grid_search' column not found. Generating based on perturb logic.")
+                # Import and use logic from perturb.py
+                coor = self.adata_right.obsm['spatial']
+                center_idx = random.randint(0, self.adata_right.n_obs - 1)
+                rad = min(coor[:, 1].max() - coor[:, 1].min(), coor[:, 0].max() - coor[:, 0].min()) / 4
+                remodeled_idxs = [idx for idx in range(self.adata_right.n_obs) if math.dist(coor[idx], coor[center_idx]) < rad]
+                self.adata_right.obs['is_remodeled_for_grid_search'] = False
+                self.adata_right.obs.loc[self.adata_right.obs.index[remodeled_idxs], 'is_remodeled_for_grid_search'] = True
+            actual = self.adata_right.obs['is_remodeled_for_grid_search'].values
+            predicted = np.array(list(map(lambda x: 1 if x == 'bad' else 0, self.adata_right.obs['region'].values)))
 
-                F1_score = metrics.f1_score(actual, predicted)
+            F1_score = metrics.f1_score(actual, predicted)
 
-                df_F1_score = pd.DataFrame({'F1_score': [F1_score]})
-                df_F1_score.to_csv(f'{self.results_path}/{self.dataset}/{self.config_file_name}/F1_score.csv')
-            else:
-                print("Warning: Column 'is_remodeled_for_grid_search' not found in adata_right.obs. Skipping F1 score calculation for grid search.")
+            df_F1_score = pd.DataFrame({'F1_score': [F1_score]})
+            df_F1_score.to_csv(f'{self.results_path}/{self.dataset}/{self.config_file_name}/F1_score.csv')
 
 
-    def get_goodness_threshold_from_null_distribution(self, adata_left, adata_right='None'):
+    def get_goodness_threshold_from_null_distribution(self, adata_left, adata_right=None):
         print("\nSynthesizing the healthy sample\n")
-        if adata_right == 'None':
-            adata_0, adata_1 = self.get_random_adatas_by_nearest_neighbor(adata_left)
+        if adata_right is None:
+            adata_0, adata_1 = self.get_2hop_adatas(adata_left)
         else:
             adata_0 = adata_left
             adata_1 = adata_right
 
-        if torch.cuda.is_available():
+        if self.use_gpu and torch.cuda.is_available():
             backend = ot.backend.TorchBackend()
             use_gpu = True
         else:
             backend = ot.backend.NumpyBackend()
             use_gpu = False
 
-        if adata_right == 'None':
+        if adata_right is None:
             cost_mat_path = f'{self.results_path}/../local_data/{self.dataset}/{self.sample_left}/cost_mat_{self.sample_left}_0_{self.sample_left}_1_{self.dissimilarity}.npy'
         else:
             cost_mat_path = f'{self.results_path}/../local_data/{self.dataset}/{self.sample_left}/cost_mat_Sham_1_Sham_2_{self.dissimilarity}.npy'
@@ -344,4 +352,27 @@ class AnalyzeOutput:
 
         print(f'Group 0 size: {len(group0)}, Group 1 size: {len(group1)}')
 
+        return adata_0, adata_1
+
+    def get_2hop_adatas(self, adata):
+        n = adata.obs['array_row'].max() + 1
+        m = adata.obs['array_col'].max() + 1
+        barcode_grid = np.empty([n, m], dtype='<U100')
+        grid_idx = np.zeros((n, m)) - 1
+        spot_rows = adata.obs['array_row']
+        spot_cols = adata.obs['array_col']
+        barcode_grid[spot_rows, spot_cols] = adata.obs.index
+        grid_idx[spot_rows, spot_cols] = range(len(adata.obs.index))
+        barcode_index = dict(zip(adata.obs.index, range(len(adata.obs.index))))
+
+        col_max = grid_idx.max(axis=0)
+        col_idxs = np.argwhere(col_max != -1).reshape(-1)
+
+        grid_idx_0 = grid_idx[:, col_idxs[::2]]
+        grid_idx_1 = grid_idx[:, col_idxs[1::2]]
+
+        idxs_0_2hop = grid_idx_0[grid_idx_0 != -1].astype('int')
+        idxs_1_2hop = grid_idx_1[grid_idx_1 != -1].astype('int')
+        adata_0 = adata[idxs_0_2hop]
+        adata_1 = adata[idxs_1_2hop]
         return adata_0, adata_1
