@@ -6,7 +6,7 @@ from tqdm import tqdm
 parser = argparse.ArgumentParser(prog='SPaSE')
 parser.add_argument('-d', '--dataset')
 parser.add_argument('-l', '--adata_left_path')
-parser.add_argument('-h', '--adata_healthy_right_path')
+parser.add_argument('-hr', '--adata_healthy_right_path')
 parser.add_argument('-r', '--adata_right_path')
 parser.add_argument('-g', '--use_gpu', default=0)
 
