@@ -8,8 +8,17 @@ parser.add_argument('-d', '--dataset')
 parser.add_argument('-l', '--adata_left_path')
 parser.add_argument('-hr', '--adata_healthy_right_path')
 parser.add_argument('-r', '--adata_right_path')
+
 parser.add_argument('-g', '--use_gpu', default=0)
 parser.add_argument('-ds', '--dissimilarity', default='js')
+parser.add_argument('-sh', '--sinkhorn', default=1)
+parser.add_argument('-ims', '--init_map_scheme', default='uniform')
+parser.add_argument('-nim', '--numInnerIterMax', default=10000)
+parser.add_argument('-nem', '--numIterMaxEmd', default=1000000)
+parser.add_argument('-ifp', '--data_folder_path', default='../Data')
+parser.add_argument('-rp', '--results_path', default='../results')
+parser.add_argument('-qc', '--QC', default=0)
+
 
 args = parser.parse_args()
 
@@ -22,6 +31,9 @@ sample_right = args.adata_right_path.split('/')[-1].split('.')[0]
 for alpha in alphas:
     for lambda_sinkhorn in lambda_sinkhorns:
         config = {
+            "grid_search": 1,
+            "alpha": alpha,
+            "lambda_sinkhorn": lambda_sinkhorn,
             "mode": 1,
             "dataset": args.dataset,
             "sample_left": sample_left,
@@ -29,18 +41,15 @@ for alpha in alphas:
             "adata_left_path": args.adata_left_path,
             "adata_right_path": args.adata_right_path,
             "adata_healthy_right_path": args.adata_healthy_right_path,
-            "sinkhorn": 1,
-            "lambda_sinkhorn": lambda_sinkhorn,
+            "sinkhorn": int(args.sinkhorn),
             "dissimilarity": args.dissimilarity,
-            "alpha": alpha,
-            "init_map_scheme": 'uniform',
-            "numIterMaxEmd": 1000000,
-            "numInnerIterMax": 10000,
+            "init_map_scheme": args.init_map_scheme,
+            "numIterMaxEmd": int(args.numIterMaxEmd),
+            "numInnerIterMax": int(args.numInnerIterMax),
             "use_gpu": int(args.use_gpu),
-            "QC": 0,
-            "data_folder_path": "../Data",
-            "results_path": "../results",
-            "grid_search": 1,
+            "QC": int(args.QC),
+            "data_folder_path": args.data_folder_path,
+            "results_path": args.results_path,
         }
 
         config_file_name = f'config_{args.dataset}_{sample_left}_vs_{sample_right}_{args.dissimilarity}'
