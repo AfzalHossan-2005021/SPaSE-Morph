@@ -3,8 +3,8 @@ import ot
 import torch
 import numpy as np
 import scanpy as sc
-from .DataLoader import DataLoader
-from .utils import scale_coords, QC, paste_pairwise_align_modified
+from DataLoader import DataLoader
+from utils import scale_coords, QC, paste_pairwise_align_modified
 
 
 class PairwiseAlign():

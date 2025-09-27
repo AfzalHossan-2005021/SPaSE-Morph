@@ -12,8 +12,8 @@ import matplotlib.pyplot as plt
 
 from scipy import stats
 from sklearn import metrics
-from .DataLoader import DataLoader
-from .utils import compute_null_distribution, scale_coords, QC, paste_pairwise_align_modified
+from DataLoader import DataLoader
+from utils import compute_null_distribution, scale_coords, QC, paste_pairwise_align_modified
 
 class AnalyzeOutput:
     def __init__(self, config):

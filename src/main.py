@@ -3,17 +3,19 @@ import json
 import argparse
 import numpy as np
 import pandas as pd
-from src.PairwiseAlign import PairwiseAlign
-from src.AnalyzeOutput import AnalyzeOutput
+from PairwiseAlign import PairwiseAlign
+from AnalyzeOutput import AnalyzeOutput
 
 
 def main():
     config = load_config()
 
-    print("sample_left", config['sample_left'])
-    print("sample_right", config['sample_right'])
-    print('alpha:', config['alpha'])
-    print('lambda_sinkhorn:', config['lambda_sinkhorn'])
+    print("\nConfiguration:")
+    print("sample_left: ", config['sample_left'])
+    print("sample_right: ", config['sample_right'])
+    print('alpha: ', config['alpha'])
+    print('lambda: ', config['lambda_sinkhorn'])
+    print('-' * 40)
 
     mode = config['mode']
 
@@ -54,8 +56,7 @@ def main():
 
 def load_config():
     parser = argparse.ArgumentParser(description='Modified PASTE pipeline')
-    parser.add_argument(
-        '--config', help="The input parameters json file path", required=True)
+    parser.add_argument('--config', help="The input parameters json file path", required=True)
     args = parser.parse_args()
 
     with open(args.config) as f:
