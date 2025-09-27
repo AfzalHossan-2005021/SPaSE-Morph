@@ -4,11 +4,13 @@ import argparse
 from tqdm import tqdm
 
 parser = argparse.ArgumentParser(prog='SPaSE')
-parser.add_argument('-dir_name', '--dir_name')
-parser.add_argument('-healthy', '--healthy')
-parser.add_argument('-diseased', '--diseased')
+parser.add_argument('-d', '--dir_name')
+parser.add_argument('-l', '--healthy')
+parser.add_argument('-r', '--diseased')
+parser.add_argument('-hr', '--healthy_right_path', default='None')
 parser.add_argument('-a', '--alpha')
-parser.add_argument('-l', '--lambda_sinkhorn')
+parser.add_argument('-ls', '--lambda_sinkhorn')
+parser.add_argument('-g', '--use_gpu', default=1)
 
 args = parser.parse_args()
 
@@ -16,23 +18,17 @@ args = parser.parse_args()
 dataset = args.dir_name
 healthy_path = args.healthy
 diseased_path = args.diseased
-alpha_val = float(args.alpha)
-lambda_val = float(args.lambda_sinkhorn)
+adata_healthy_right_path = args.healthy_right_path
+
+alpha = float(args.alpha)
+lambda_sinkhorn = float(args.lambda_sinkhorn)
+use_gpu = int(args.use_gpu)
 
 adata_left_path = f'../../../Data/{dataset}/{healthy_path}'
 adata_right_path = f'../../../Data/{dataset}/{diseased_path}'
 
-adata_healthy_right_path = 'None'
-adata_to_be_synthesized_path = f'../../../Data/{dataset}/{healthy_path}'
-
-
-
 sample_left = adata_left_path.split('/')[-1].split('.')[0]
 sample_right = adata_right_path.split('/')[-1].split('.')[0]
-alpha = alpha_val
-lambda_sinkhorn = lambda_val
-
-
 
 sinkhorn = 1
 dissimilarity = 'js'
@@ -42,7 +38,6 @@ mode = 1
 numIterMaxEmd = 1000000
 numInnerIterMax = 10000
 init_map_scheme = "uniform"
-use_gpu = 1
 QC = 0
 
 config = {
@@ -52,7 +47,6 @@ config = {
     "sample_right": sample_right,
     "adata_left_path": adata_left_path,
     "adata_right_path": adata_right_path,
-    "adata_to_be_synthesized_path": adata_to_be_synthesized_path,
     "adata_healthy_right_path": adata_healthy_right_path,
     "sinkhorn": sinkhorn,
     "lambda_sinkhorn": lambda_sinkhorn,

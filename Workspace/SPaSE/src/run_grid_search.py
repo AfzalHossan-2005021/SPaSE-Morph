@@ -18,7 +18,6 @@ adata_left_path = args.adata_left_path
 adata_right_path = args.adata_right_path
 
 adata_healthy_right_path = args.adata_healthy_right_path
-adata_to_be_synthesized_path = args.adata_left_path
 
 
 sample_left = adata_left_path.split('/')[-1].split('.')[0]
@@ -47,7 +46,6 @@ for alpha in alphas:
             "sample_right": sample_right,
             "adata_left_path": adata_left_path,
             "adata_right_path": adata_right_path,
-            "adata_to_be_synthesized_path": adata_to_be_synthesized_path,
             "adata_healthy_right_path": adata_healthy_right_path,
             "sinkhorn": sinkhorn,
             "lambda_sinkhorn": lambda_sinkhorn,

@@ -119,17 +119,14 @@ class AnalyzeOutput:
 
 
     def divide_into_2_regions_wrt_goodness_score_and_find_DEG(self):
-        if self.config['adata_to_be_synthesized_path'] != 'None':
-            adata_to_be_synthesized = sc.read(self.config['adata_to_be_synthesized_path'])
-        else:
-            adata_to_be_synthesized = self.adata_left.copy()
+        adata_healthy_left = self.adata_left.copy()
 
         if self.config['adata_healthy_right_path'] != 'None':
             adata_healthy_right = sc.read(self.config['adata_healthy_right_path'])
         else:
             adata_healthy_right = None
 
-        right_threshold = self.get_goodness_threshold_from_null_distribution(adata_to_be_synthesized, adata_healthy_right)
+        right_threshold = self.get_goodness_threshold_from_null_distribution(adata_healthy_left, adata_healthy_right)
 
         print('Thresholds:', right_threshold)
         df_right_threshold = pd.DataFrame({'right_threshold': [right_threshold]})

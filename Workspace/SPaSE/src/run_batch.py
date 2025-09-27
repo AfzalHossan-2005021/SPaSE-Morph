@@ -5,7 +5,6 @@ from tqdm import tqdm
 dataset = 'None'
 adata_left_path = 'None'
 adata_right_path = 'None'
-adata_to_be_synthesized_path = 'None'
 
 cases = []
 
@@ -198,7 +197,6 @@ for case in tqdm(cases):
         "sample_right": sample_right,
         "adata_left_path": adata_left_path,
         "adata_right_path": adata_right_path,
-        "adata_to_be_synthesized_path": 'None',
         "adata_healthy_right_path": 'None',
         "sinkhorn": sinkhorn,
         "lambda_sinkhorn": lambda_sinkhorn,
