@@ -16,9 +16,7 @@ args = parser.parse_args()
 dataset = args.dataset
 adata_left_path = args.adata_left_path
 adata_right_path = args.adata_right_path
-
 adata_healthy_right_path = args.adata_healthy_right_path
-
 
 sample_left = adata_left_path.split('/')[-1].split('.')[0]
 sample_right = adata_right_path.split('/')[-1].split('.')[0]

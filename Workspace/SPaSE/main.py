@@ -1,9 +1,8 @@
+import os
 import json
 import argparse
-import pandas as pd
 import numpy as np
-import os
-from src.utils import get_random_pi_init, find_init_angle_of_rotation
+import pandas as pd
 from src.PairwiseAlign import PairwiseAlign
 from src.AnalyzeOutput import AnalyzeOutput
 
@@ -13,7 +12,7 @@ def main():
 
     print("sample_left", config['sample_left'])
     print("sample_right", config['sample_right'])
-    print('\nalpha:', config['alpha'])
+    print('alpha:', config['alpha'])
     print('lambda_sinkhorn:', config['lambda_sinkhorn'])
 
     mode = config['mode']
@@ -67,5 +66,3 @@ def load_config():
 
 if __name__ == "__main__":
     main()
-
-
