@@ -14,7 +14,7 @@ import numpy as np
 import torch
 import ot  # POT
 
-def to_backend_array(x, nx, dtype="float32", use_gpu=True):
+def to_backend_array(x, nx, dtype="float64", use_gpu=True):
     """
     Convert input `x` into the POT backend format (NumPy, Torch, JAX, etc.),
     while handling device placement and dtype.
