@@ -11,7 +11,7 @@ parser.add_argument('-l', '--left_sample_name')
 parser.add_argument('-r', '--right_sample_name')
 
 parser.add_argument('-hr', '--healthy_right_sample_name', default='None')
-parser.add_argument('-g', '--use_gpu', default=0)
+parser.add_argument('-g', '--use_gpu', default=1)
 
 parser.add_argument('-ds', '--dissimilarity', default='js')
 parser.add_argument('-sh', '--sinkhorn', default=1)
