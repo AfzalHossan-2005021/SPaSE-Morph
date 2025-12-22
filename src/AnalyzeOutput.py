@@ -230,7 +230,7 @@ class AnalyzeOutput:
     def get_goodness_threshold_from_null_distribution(self, adata_left, adata_right=None):
         print("\nSynthesizing the healthy sample\n")
         if adata_right is None:
-            adata_0, adata_1 = self.get_random_adatas_by_nearest_neighbor(adata_left)
+            adata_0, adata_1 = self.get_2hop_adatas(adata_left)
         else:
             adata_0 = adata_left
             adata_1 = adata_right
