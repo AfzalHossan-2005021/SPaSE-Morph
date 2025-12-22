@@ -546,11 +546,38 @@ def jensenshannon_divergence_backend(X, Y, nx):
 
     assert X.shape[1] == Y.shape[1], "X and Y do not have the same number of features."
 
-    print(nx.unique(nx.isnan(X)))
-    print(nx.unique(nx.isnan(Y)))
-        
-    X = X/nx.sum(X, axis=1, keepdims=True)
-    Y = Y/nx.sum(Y, axis=1, keepdims=True)
+    # Check for NaN in input
+    has_nan_X = nx.any(nx.isnan(X))
+    has_nan_Y = nx.any(nx.isnan(Y))
+    print(f"Input X contains NaN: {has_nan_X}")
+    print(f"Input Y contains NaN: {has_nan_Y}")
+    
+    # Add epsilon before normalization to avoid division by zero
+    eps = 1e-10
+    X = X + eps
+    Y = Y + eps
+    
+    # Normalize with safe division
+    X_sum = nx.sum(X, axis=1, keepdims=True)
+    Y_sum = nx.sum(Y, axis=1, keepdims=True)
+    
+    # Replace zero sums with 1 to avoid division by zero
+    X_sum = nx.where(X_sum == 0, nx.ones_like(X_sum), X_sum)
+    Y_sum = nx.where(Y_sum == 0, nx.ones_like(Y_sum), Y_sum)
+    
+    X = X / X_sum
+    Y = Y / Y_sum
+    
+    # Check for NaN after normalization
+    has_nan_X_norm = nx.any(nx.isnan(X))
+    has_nan_Y_norm = nx.any(nx.isnan(Y))
+    if has_nan_X_norm or has_nan_Y_norm:
+        print(f"WARNING: NaN detected after normalization! X: {has_nan_X_norm}, Y: {has_nan_Y_norm}")
+        # Replace NaN with uniform distribution
+        if has_nan_X_norm:
+            X = nx.where(nx.isnan(X), 1.0 / X.shape[1], X)
+        if has_nan_Y_norm:
+            Y = nx.where(nx.isnan(Y), 1.0 / Y.shape[1], Y)
 
     n = X.shape[0]
     m = Y.shape[0]
@@ -561,7 +588,18 @@ def jensenshannon_divergence_backend(X, Y, nx):
         js_dist[i, :] = jensenshannon_distance_1_vs_many_backend(X[i:i+1], Y, nx)
         
     print("Finished calculating cost matrix")
-    print(nx.unique(nx.isnan(js_dist)))
+    
+    # Check for NaN in result
+    has_nan_result = nx.any(nx.isnan(js_dist))
+    if has_nan_result:
+        nan_count = nx.sum(nx.isnan(js_dist))
+        print(f"WARNING: Cost matrix contains {nan_count} NaN values after calculation!")
+        # Replace NaN with maximum finite value
+        max_finite = nx.max(nx.where(nx.isnan(js_dist), -nx.inf, js_dist))
+        if nx.isnan(max_finite) or nx.isinf(max_finite):
+            max_finite = 1.0
+        js_dist = nx.where(nx.isnan(js_dist), max_finite, js_dist)
+        print(f"Replaced NaN values with {max_finite}")
 
     return js_dist
 
