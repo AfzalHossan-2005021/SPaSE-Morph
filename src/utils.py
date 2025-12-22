@@ -561,9 +561,9 @@ def jensenshannon_divergence_backend(X, Y, nx):
     X_sum = nx.sum(X, axis=1, keepdims=True)
     Y_sum = nx.sum(Y, axis=1, keepdims=True)
     
-    # Replace zero sums with 1 to avoid division by zero
-    X_sum = nx.where(X_sum == 0, nx.ones_like(X_sum), X_sum)
-    Y_sum = nx.where(Y_sum == 0, nx.ones_like(Y_sum), Y_sum)
+    # Clip sums to avoid division by zero (more robust than where/ones_like)
+    X_sum = nx.maximum(X_sum, eps)
+    Y_sum = nx.maximum(Y_sum, eps)
     
     X = X / X_sum
     Y = Y / Y_sum
@@ -573,11 +573,15 @@ def jensenshannon_divergence_backend(X, Y, nx):
     has_nan_Y_norm = nx.any(nx.isnan(Y))
     if has_nan_X_norm or has_nan_Y_norm:
         print(f"WARNING: NaN detected after normalization! X: {has_nan_X_norm}, Y: {has_nan_Y_norm}")
-        # Replace NaN with uniform distribution
+        # Convert to numpy for NaN handling, then back to backend
         if has_nan_X_norm:
-            X = nx.where(nx.isnan(X), 1.0 / X.shape[1], X)
+            X_np = nx.to_numpy(X)
+            X_np = np.nan_to_num(X_np, nan=1.0 / X.shape[1])
+            X = to_backend_array(X_np, nx, use_gpu=(hasattr(X, 'device') and X.device.type == 'cuda'))
         if has_nan_Y_norm:
-            Y = nx.where(nx.isnan(Y), 1.0 / Y.shape[1], Y)
+            Y_np = nx.to_numpy(Y)
+            Y_np = np.nan_to_num(Y_np, nan=1.0 / Y.shape[1])
+            Y = to_backend_array(Y_np, nx, use_gpu=(hasattr(Y, 'device') and Y.device.type == 'cuda'))
 
     n = X.shape[0]
     m = Y.shape[0]
@@ -594,11 +598,13 @@ def jensenshannon_divergence_backend(X, Y, nx):
     if has_nan_result:
         nan_count = nx.sum(nx.isnan(js_dist))
         print(f"WARNING: Cost matrix contains {nan_count} NaN values after calculation!")
-        # Replace NaN with maximum finite value
-        max_finite = nx.max(nx.where(nx.isnan(js_dist), -nx.inf, js_dist))
-        if nx.isnan(max_finite) or nx.isinf(max_finite):
+        # Convert to numpy for NaN handling
+        js_dist_np = nx.to_numpy(js_dist)
+        max_finite = np.nanmax(js_dist_np)
+        if np.isnan(max_finite) or np.isinf(max_finite):
             max_finite = 1.0
-        js_dist = nx.where(nx.isnan(js_dist), max_finite, js_dist)
+        js_dist_np = np.nan_to_num(js_dist_np, nan=max_finite)
+        js_dist = to_backend_array(js_dist_np, nx, use_gpu=(hasattr(js_dist, 'device') and js_dist.device.type == 'cuda'))
         print(f"Replaced NaN values with {max_finite}")
 
     return js_dist
