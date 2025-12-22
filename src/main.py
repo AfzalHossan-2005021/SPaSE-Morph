@@ -44,6 +44,24 @@ def main():
             print("mode == 2, but pi path not set")
             return
         pi = np.load(config['pi_path'])
+        
+        # Validate pi matrix before proceeding
+        nan_count = np.isnan(pi).sum()
+        total_elements = pi.size
+        if nan_count == total_elements:
+            print(f"\n{'='*70}")
+            print(f"ERROR: Pi matrix is entirely NaN ({nan_count}/{total_elements} elements)")
+            print(f"Cannot proceed with analysis. The optimal transport failed completely.")
+            print(f"Please re-run mode 1 with adjusted parameters:")
+            print(f"  - Increase numItermax")
+            print(f"  - Increase lambda_sinkhorn regularization")
+            print(f"  - Check input data quality")
+            print(f"{'='*70}\n")
+            return
+        elif nan_count > 0:
+            print(f"\nWarning: Pi matrix contains {nan_count}/{total_elements} NaN values ({100*nan_count/total_elements:.2f}%)")
+            print(f"Analysis will proceed but results may be unreliable.\n")
+        
         config['pi'] = pi
         output_analyzer = AnalyzeOutput(config)
         

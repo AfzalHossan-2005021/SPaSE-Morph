@@ -109,6 +109,11 @@ def paste_pairwise_align_modified(
         common_genes = intersect(sliceA.var.index, sliceB.var.index)
         sliceA = sliceA[:, common_genes]
         sliceB = sliceB[:, common_genes]
+        
+        print(f"\n--- Data Quality Checks ---")
+        print(f"Common genes: {len(common_genes)}")
+        if len(common_genes) < 100:
+            print(f"WARNING: Very few common genes ({len(common_genes)}). This may cause numerical instability.")
 
         # Use provided backend
         nx = backend  
@@ -133,6 +138,68 @@ def paste_pairwise_align_modified(
 
         B_X = to_dense_array(extract_data_matrix(sliceB,use_rep))
         B_X = to_backend_array(B_X, nx, use_gpu=use_gpu)
+        
+        # Check for data quality issues before cost matrix calculation
+        A_X_np = nx.to_numpy(A_X)
+        B_X_np = nx.to_numpy(B_X)
+        
+        a_has_nan = np.isnan(A_X_np).any()
+        b_has_nan = np.isnan(B_X_np).any()
+        a_has_inf = np.isinf(A_X_np).any()
+        b_has_inf = np.isinf(B_X_np).any()
+        
+        print(f"SliceA shape: {A_X_np.shape}")
+        print(f"SliceB shape: {B_X_np.shape}")
+        print(f"SliceA has NaN: {a_has_nan}" + (f" ({np.isnan(A_X_np).sum()} values)" if a_has_nan else ""))
+        print(f"SliceB has NaN: {b_has_nan}" + (f" ({np.isnan(B_X_np).sum()} values)" if b_has_nan else ""))
+        print(f"SliceA has Inf: {a_has_inf}" + (f" ({np.isinf(A_X_np).sum()} values)" if a_has_inf else ""))
+        print(f"SliceB has Inf: {b_has_inf}" + (f" ({np.isinf(B_X_np).sum()} values)" if b_has_inf else ""))
+        
+        # Check for zero-sum cells (cells with no expression)
+        a_row_sums = A_X_np.sum(axis=1)
+        b_row_sums = B_X_np.sum(axis=1)
+        a_zero_cells = (a_row_sums == 0).sum()
+        b_zero_cells = (b_row_sums == 0).sum()
+        a_near_zero_cells = (a_row_sums < 1e-10).sum()
+        b_near_zero_cells = (b_row_sums < 1e-10).sum()
+        
+        print(f"SliceA zero-sum cells: {a_zero_cells}/{len(a_row_sums)}")
+        print(f"SliceB zero-sum cells: {b_zero_cells}/{len(b_row_sums)}")
+        print(f"SliceA near-zero-sum cells: {a_near_zero_cells}/{len(a_row_sums)}")
+        print(f"SliceB near-zero-sum cells: {b_near_zero_cells}/{len(b_row_sums)}")
+        
+        # Check value ranges
+        print(f"SliceA value range: [{np.min(A_X_np):.6f}, {np.max(A_X_np):.6f}]")
+        print(f"SliceB value range: [{np.min(B_X_np):.6f}, {np.max(B_X_np):.6f}]")
+        
+        # Check for zero-variance genes
+        a_col_std = A_X_np.std(axis=0)
+        b_col_std = B_X_np.std(axis=0)
+        a_zero_var_genes = (a_col_std == 0).sum()
+        b_zero_var_genes = (b_col_std == 0).sum()
+        print(f"SliceA zero-variance genes: {a_zero_var_genes}/{A_X_np.shape[1]}")
+        print(f"SliceB zero-variance genes: {b_zero_var_genes}/{B_X_np.shape[1]}")
+        
+        # Warnings
+        if a_has_nan or b_has_nan:
+            print(f"\nWARNING: Input data contains NaN values! Replacing with zeros...")
+            A_X_np = np.nan_to_num(A_X_np, nan=0.0)
+            B_X_np = np.nan_to_num(B_X_np, nan=0.0)
+            A_X = to_backend_array(A_X_np, nx, use_gpu=use_gpu)
+            B_X = to_backend_array(B_X_np, nx, use_gpu=use_gpu)
+        
+        if a_has_inf or b_has_inf:
+            print(f"WARNING: Input data contains Inf values! Clipping to finite range...")
+            max_finite = np.finfo(np.float64).max / 1e10
+            A_X_np = np.clip(A_X_np, -max_finite, max_finite)
+            B_X_np = np.clip(B_X_np, -max_finite, max_finite)
+            A_X = to_backend_array(A_X_np, nx, use_gpu=use_gpu)
+            B_X = to_backend_array(B_X_np, nx, use_gpu=use_gpu)
+        
+        if a_zero_cells > 0 or b_zero_cells > 0:
+            print(f"WARNING: Found cells with zero expression. This may cause division by zero in normalization.")
+        
+        print(f"---------------------------\n")
 
         # Handle cost matrix loading/generation
         M = None
@@ -163,10 +230,41 @@ def paste_pairwise_align_modified(
                 M = jensenshannon_divergence_backend(s_A, s_B, nx)
             else:
                 raise ValueError(f"Unknown dissimilarity measure: {dissimilarity}")
+            
+            # Check for NaN values in generated cost matrix
+            M_np = nx.to_numpy(M)
+            nan_count = np.isnan(M_np).sum()
+            if nan_count > 0:
+                print(f"\nWarning: Cost matrix contains {nan_count} NaN values")
+                print(f"Replacing NaN values with maximum finite value...")
+                max_finite = np.nanmax(M_np)
+                if np.isnan(max_finite) or np.isinf(max_finite):
+                    # If all values are NaN or inf, use a default large value
+                    max_finite = 1000.0
+                    print(f"Using default value: {max_finite}")
+                else:
+                    print(f"Using max finite value: {max_finite}")
+                M_np = np.nan_to_num(M_np, nan=max_finite, posinf=max_finite, neginf=0.0)
+                M = to_backend_array(M_np, nx, use_gpu=use_gpu)
                 
             # Save cost matrix if path is provided
             if cost_mat_path:
                 np.save(cost_mat_path, nx.to_numpy(M))
+        else:
+            # Check loaded cost matrix for NaN values
+            M_np = M if isinstance(M, np.ndarray) else nx.to_numpy(M)
+            nan_count = np.isnan(M_np).sum()
+            if nan_count > 0:
+                print(f"\nWarning: Loaded cost matrix contains {nan_count} NaN values")
+                print(f"Replacing NaN values with maximum finite value...")
+                max_finite = np.nanmax(M_np)
+                if np.isnan(max_finite) or np.isinf(max_finite):
+                    max_finite = 1000.0
+                    print(f"Using default value: {max_finite}")
+                else:
+                    print(f"Using max finite value: {max_finite}")
+                M_np = np.nan_to_num(M_np, nan=max_finite, posinf=max_finite, neginf=0.0)
+                M = M_np
                 
         M = to_backend_array(M, nx, use_gpu=use_gpu)
         
@@ -281,11 +379,36 @@ def my_fused_gromov_wasserstein_gcg(M, C1, C2, p, q, nx, lambda_sinkhorn=1, G_in
             res, log = ot.optim.gcg(p, q, M, lambda_sinkhorn, alpha, f, df, G0, log=True, **kwargs)
             fgw_dist = log['loss'][-1]
             log['fgw_dist'] = fgw_dist
+            
+            # Validate result
+            res_np = nx.to_numpy(res) if hasattr(res, 'device') else res
+            if np.isnan(res_np).any():
+                print(f"\n{'!'*70}")
+                print(f"ERROR: Optimal transport returned NaN values!")
+                print(f"NaN count: {np.isnan(res_np).sum()}/{res_np.size}")
+                print(f"This is likely due to Sinkhorn non-convergence.")
+                print(f"Current parameters:")
+                print(f"  - lambda_sinkhorn: {lambda_sinkhorn}")
+                print(f"  - alpha: {alpha}")
+                print(f"  - numItermax: {numItermax}")
+                if 'numInnerItermax' in kwargs:
+                    print(f"  - numInnerItermax: {kwargs['numInnerItermax']}")
+                print(f"{'!'*70}\n")
+            
             return res, log
 
         else:
             print('log false')
             pi = ot.optim.gcg(p, q, M, lambda_sinkhorn, alpha, f, df, G0, log=False, **kwargs)
+            
+            # Validate result
+            pi_np = nx.to_numpy(pi) if hasattr(pi, 'device') else pi
+            if np.isnan(pi_np).any():
+                print(f"\n{'!'*70}")
+                print(f"ERROR: Optimal transport returned NaN values!")
+                print(f"NaN count: {np.isnan(pi_np).sum()}/{pi_np.size}")
+                print(f"{'!'*70}\n")
+            
             return pi, -1
 
 
@@ -321,8 +444,18 @@ def kl_divergence_backend(X, Y, nx):
     """
     assert X.shape[1] == Y.shape[1], "X and Y do not have the same number of features."
 
+    # Add small epsilon to avoid log(0) and division by zero
+    eps = 1e-10
+    X = X + eps
+    Y = Y + eps
+    
     X = X/nx.sum(X,axis=1, keepdims=True)
     Y = Y/nx.sum(Y,axis=1, keepdims=True)
+    
+    # Clamp values to avoid numerical issues
+    X = nx.clip(X, eps, 1.0)
+    Y = nx.clip(Y, eps, 1.0)
+    
     log_X = nx.log(X)
     log_Y = nx.log(Y)
     X_log_X = nx.einsum('ij,ij->i',X,log_X)
@@ -344,8 +477,18 @@ def kl_divergence_corresponding_backend(X, Y, nx):
     """
     assert X.shape[1] == Y.shape[1], "X and Y do not have the same number of features."
 
+    # Add small epsilon to avoid log(0) and division by zero
+    eps = 1e-10
+    X = X + eps
+    Y = Y + eps
+    
     X = X/nx.sum(X,axis=1, keepdims=True)
     Y = Y/nx.sum(Y,axis=1, keepdims=True)
+    
+    # Clamp values to avoid numerical issues
+    X = nx.clip(X, eps, 1.0)
+    Y = nx.clip(Y, eps, 1.0)
+    
     log_X = nx.log(X)
     log_Y = nx.log(Y)
     X_log_X = nx.einsum('ij,ij->i',X,log_X)
@@ -371,13 +514,19 @@ def jensenshannon_distance_1_vs_many_backend(X, Y, nx):
     assert X.shape[1] == Y.shape[1], "X and Y do not have the same number of features."
     assert X.shape[0] == 1
 
+    eps = 1e-10
     X = nx.concatenate([X] * Y.shape[0], axis=0)
+    X = X + eps
+    Y = Y + eps
     X = X/nx.sum(X,axis=1, keepdims=True)
     Y = Y/nx.sum(Y,axis=1, keepdims=True)
     M = (X + Y) / 2.0
     kl_X_M = kl_divergence_corresponding_backend(X, M, nx)
     kl_Y_M = kl_divergence_corresponding_backend(Y, M, nx)
-    js_dist = nx.sqrt((kl_X_M + kl_Y_M) / 2.0).T[0]
+    # Ensure non-negative values before sqrt to avoid NaN
+    js_divergence = (kl_X_M + kl_Y_M) / 2.0
+    js_divergence = nx.clip(js_divergence, 0.0, None)
+    js_dist = nx.sqrt(js_divergence).T[0]
     return js_dist
 
 

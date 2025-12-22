@@ -72,23 +72,56 @@ class AnalyzeOutput:
 
         score_mat = pi * cost_mat
 
+        # Debug information
+        print(f"\n--- Debugging pathological score calculation for {slice_pos} slice ---")
+        print(f"pi shape: {pi.shape}, contains NaN: {np.isnan(pi).any()}, NaN count: {np.isnan(pi).sum()}")
+        print(f"cost_mat shape: {cost_mat.shape}, contains NaN: {np.isnan(cost_mat).any()}, NaN count: {np.isnan(cost_mat).sum()}")
+        print(f"score_mat contains NaN: {np.isnan(score_mat).any()}, NaN count: {np.isnan(score_mat).sum()}")
+        print(f"adata.n_obs: {adata.n_obs}")
+        
         adata.obs['pathological_score'] = np.sum(score_mat, axis=1, dtype=np.float64) / (1 / adata.n_obs) * 100
+        
+        print(f"pathological_score contains NaN: {np.isnan(adata.obs['pathological_score'].values).any()}, NaN count: {np.isnan(adata.obs['pathological_score'].values).sum()}/{len(adata.obs['pathological_score'])}")
+        print(f"pathological_score range: [{np.nanmin(adata.obs['pathological_score'].values)}, {np.nanmax(adata.obs['pathological_score'].values)}]")
+        print("-----------------------------------------------------------\n")
+        
         adata.obs['pathological_score'].to_csv(f'{self.results_path}/{self.dataset}/{self.config_file_name}/pathological_scores.csv')
 
+        # Filter out NaN values for histogram
+        pathological_scores = adata.obs['pathological_score'].values
+        valid_scores = pathological_scores[~np.isnan(pathological_scores)]
+        
+        if len(valid_scores) == 0:
+            print(f"Warning: All pathological scores are NaN for {slice_pos} slice. Skipping visualization.")
+            print(f"Possible causes: NaN values in pi matrix ({np.isnan(pi).sum()} NaNs) or cost matrix ({np.isnan(cost_mat).sum()} NaNs)")
+            return
+        
         bins = 100
         plt.figure(figsize=(9, 9))
-        plt.hist(adata.obs['pathological_score'].values, bins=bins)
+        plt.hist(valid_scores, bins=bins)
         os.makedirs(f'{self.results_path}/{self.dataset}/{self.config_file_name}/Histograms/', exist_ok=True)
         plt.savefig(f'{self.results_path}/{self.dataset}/{self.config_file_name}/Histograms/{slice_pos}_pathological_score.jpg',format='jpg',dpi=350,bbox_inches='tight',pad_inches=0)
         plt.close()
 
+        # Create scatter plot with NaN handling
         f, ax = plt.subplots()
         plt.figure(figsize=(9, 9))
         ax.axis('off')
-        points = ax.scatter(-adata.obsm['spatial'][:, 0], -adata.obsm['spatial'][:, 1], s=10, c=adata.obs['pathological_score'].values, cmap='plasma_r')
-        if invert_x:
-            f.gca().invert_xaxis()
-        f.colorbar(points)
+        
+        # Filter out NaN values for scatter plot
+        valid_mask = ~np.isnan(adata.obs['pathological_score'].values)
+        spatial_coords = adata.obsm['spatial'][valid_mask]
+        valid_scores_spatial = adata.obs['pathological_score'].values[valid_mask]
+        
+        if len(valid_scores_spatial) > 0:
+            points = ax.scatter(-spatial_coords[:, 0], -spatial_coords[:, 1], s=10, c=valid_scores_spatial, cmap='plasma_r')
+            if invert_x:
+                f.gca().invert_xaxis()
+            f.colorbar(points)
+        else:
+            print(f"Warning: No valid pathological scores for scatter plot visualization on {slice_pos} slice.")
+            ax.text(0.5, 0.5, 'No valid data', ha='center', va='center', transform=ax.transAxes)
+        
         config_file_name = os.path.basename(self.config['config_path'])
         os.makedirs(f'{self.results_path}/{self.dataset}/{config_file_name}/Pathology_score/', exist_ok=True)
         f.savefig(f'{self.results_path}/{self.dataset}/{config_file_name}/Pathology_score/{sample_name}_pathology_score.jpg',format='jpg',dpi=350,bbox_inches='tight',pad_inches=0)
@@ -96,26 +129,29 @@ class AnalyzeOutput:
         f.savefig(f'{self.results_path}/{self.dataset}/{config_file_name}/Pathology_score/{sample_name}_pathology_score.svg',format='svg',dpi=350,bbox_inches='tight',pad_inches=0)
         plt.close()
 
-        # Approach 2: Hexbin plot for density visualization
-        f2, ax2 = plt.subplots(figsize=(15, 15))
-        ax2.axis('off')
-        x_coords = -adata.obsm['spatial'][:, 0]
-        y_coords = -adata.obsm['spatial'][:, 1]
-        hexbin = ax2.hexbin(
-            x_coords, y_coords,
-            extent=[x_coords.min(), x_coords.max(),
-                    y_coords.min(), y_coords.max()],
-            C=adata.obs['pathological_score'].values,
-            gridsize=75, cmap='plasma_r', reduce_C_function=np.mean
-        )
-        if invert_x:
-            f2.gca().invert_xaxis()
-        f2.colorbar(hexbin, label='Mean Pathological Score')
-        ax2.set_title(f'{sample_name} - Pathological Score (Hexbin Density)')
-        f2.savefig(f'{self.results_path}/{self.dataset}/{config_file_name}/Pathology_score/{sample_name}_pathology_score_hexbin.jpg',format='jpg',dpi=350,bbox_inches='tight',pad_inches=0)
-        f2.savefig(f'{self.results_path}/{self.dataset}/{config_file_name}/Pathology_score/{sample_name}_pathology_score_hexbin.eps',format='eps',dpi=350,bbox_inches='tight',pad_inches=0)
-        f2.savefig(f'{self.results_path}/{self.dataset}/{config_file_name}/Pathology_score/{sample_name}_pathology_score_hexbin.svg',format='svg',dpi=350,bbox_inches='tight',pad_inches=0)
-        plt.close()
+        # Approach 2: Hexbin plot for density visualization with NaN handling
+        if len(valid_scores_spatial) > 0:
+            f2, ax2 = plt.subplots(figsize=(15, 15))
+            ax2.axis('off')
+            x_coords = -spatial_coords[:, 0]
+            y_coords = -spatial_coords[:, 1]
+            hexbin = ax2.hexbin(
+                x_coords, y_coords,
+                extent=[x_coords.min(), x_coords.max(),
+                        y_coords.min(), y_coords.max()],
+                C=valid_scores_spatial,
+                gridsize=75, cmap='plasma_r', reduce_C_function=np.mean
+            )
+            if invert_x:
+                f2.gca().invert_xaxis()
+            f2.colorbar(hexbin, label='Mean Pathological Score')
+            ax2.set_title(f'{sample_name} - Pathological Score (Hexbin Density)')
+            f2.savefig(f'{self.results_path}/{self.dataset}/{config_file_name}/Pathology_score/{sample_name}_pathology_score_hexbin.jpg',format='jpg',dpi=350,bbox_inches='tight',pad_inches=0)
+            f2.savefig(f'{self.results_path}/{self.dataset}/{config_file_name}/Pathology_score/{sample_name}_pathology_score_hexbin.eps',format='eps',dpi=350,bbox_inches='tight',pad_inches=0)
+            f2.savefig(f'{self.results_path}/{self.dataset}/{config_file_name}/Pathology_score/{sample_name}_pathology_score_hexbin.svg',format='svg',dpi=350,bbox_inches='tight',pad_inches=0)
+            plt.close()
+        else:
+            print(f"Warning: No valid pathological scores for hexbin plot visualization on {slice_pos} slice.")
 
 
     def divide_into_2_regions_wrt_goodness_score_and_find_DEG(self):
@@ -133,7 +169,9 @@ class AnalyzeOutput:
         df_right_threshold.to_csv(f'{self.results_path}/{self.dataset}/{self.config_file_name}/thresholds.csv')
 
         self.adata_right.obs['region'] = 'bad'
-        self.adata_right.obs.loc[self.adata_right.obs['pathological_score'] < right_threshold, 'region'] = 'good'
+        # Handle NaN values - only classify as 'good' if score is valid and below threshold
+        valid_and_below_threshold = (self.adata_right.obs['pathological_score'] < right_threshold) & (~np.isnan(self.adata_right.obs['pathological_score']))
+        self.adata_right.obs.loc[valid_and_below_threshold, 'region'] = 'good'
         self.adata_right.obs['region'] = self.adata_right.obs['region'].astype('category')
 
         plt.close('all')
@@ -159,7 +197,13 @@ class AnalyzeOutput:
         self.adata_left.obs['region_mapped'] = 'good'
         self.adata_left.obs.loc[idx_barcodes, 'region_mapped'] = 'bad'
 
-        sns.histplot(self.adata_right.obs['pathological_score'].values, kde=True, color="blue", ax=self.ax_hist_rs, bins=100)
+        # Filter out NaN values before creating histogram
+        right_scores = self.adata_right.obs['pathological_score'].values
+        right_scores_valid = right_scores[~np.isnan(right_scores)]
+        if len(right_scores_valid) > 0:
+            sns.histplot(right_scores_valid, kde=True, color="blue", ax=self.ax_hist_rs, bins=100)
+        else:
+            print("Warning: All pathological scores are NaN for right slice in histogram.")
         self.ax_hist_rs.legend(['Left (H)', 'Right (D)'])
 
         self.fig_hist_rs.savefig(f'{self.results_path}/{self.dataset}/{self.config_file_name}/rs_distribution_both_both_samples.jpg')
@@ -221,23 +265,39 @@ class AnalyzeOutput:
         cost_mat = np.load(cost_mat_path)
 
         distances_left, weights_left = compute_null_distribution(pi, cost_mat, 'left')
-        print('\ndistances_left', distances_left.min(), distances_left.max())
-
-        plt.figure(figsize=(9, 9))
-        plt.tick_params(axis='x', labelsize=15)
-        plt.tick_params(axis='y', labelsize=15)
-        left_freqs = plt.hist(distances_left, bins=100)[0]
+        
+        # Filter NaN values for left distances
+        valid_left_mask = ~np.isnan(distances_left)
+        distances_left_valid = distances_left[valid_left_mask]
+        
+        if len(distances_left_valid) > 0:
+            print('\ndistances_left', distances_left_valid.min(), distances_left_valid.max())
+            plt.figure(figsize=(9, 9))
+            plt.tick_params(axis='x', labelsize=15)
+            plt.tick_params(axis='y', labelsize=15)
+            left_freqs = plt.hist(distances_left_valid, bins=100)[0]
+        else:
+            print('\nWarning: All distances_left values are NaN')
+            left_freqs = np.array([])
         
         os.makedirs(f'{self.results_path}/{self.dataset}/{self.config_file_name}/Histograms/', exist_ok=True)
         plt.savefig(f'{self.results_path}/{self.dataset}/{self.config_file_name}/Histograms/splitted_slice_left_pathological_score.jpg',format='jpg',dpi=350,bbox_inches='tight',pad_inches=0)
 
         distances_right, weights_right = compute_null_distribution(pi, cost_mat, 'right')
-        print('distances_right', distances_right.min(), distances_right.max(), '\n')
-
-        plt.figure(figsize=(9, 9))
-        plt.tick_params(axis='x', labelsize=15)
-        plt.tick_params(axis='y', labelsize=15)
-        right_freqs = plt.hist(distances_right, bins=100)[0]
+        
+        # Filter NaN values for right distances
+        valid_right_mask = ~np.isnan(distances_right)
+        distances_right_valid = distances_right[valid_right_mask]
+        
+        if len(distances_right_valid) > 0:
+            print('distances_right', distances_right_valid.min(), distances_right_valid.max(), '\n')
+            plt.figure(figsize=(9, 9))
+            plt.tick_params(axis='x', labelsize=15)
+            plt.tick_params(axis='y', labelsize=15)
+            right_freqs = plt.hist(distances_right_valid, bins=100)[0]
+        else:
+            print('Warning: All distances_right values are NaN\n')
+            right_freqs = np.array([])
 
         os.makedirs(f'{self.results_path}/{self.dataset}/{self.config_file_name}/Histograms/', exist_ok=True)
         plt.savefig(f'{self.results_path}/{self.dataset}/{self.config_file_name}/Histograms/splitted_slice_right_pathological_score.jpg',format='jpg',dpi=350,bbox_inches='tight',pad_inches=0)

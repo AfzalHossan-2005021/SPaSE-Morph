@@ -1,7 +1,6 @@
 import os
 import json
 import argparse
-from tqdm import tqdm
 
 parser = argparse.ArgumentParser(prog='SPaSE')
 parser.add_argument('-ifp', '--data_folder_path', default='../Data')
