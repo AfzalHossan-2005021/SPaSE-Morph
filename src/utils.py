@@ -532,7 +532,7 @@ def jensenshannon_distance_1_vs_many_backend(X, Y, nx):
 
 def jensenshannon_divergence_backend(X, Y, nx):
     """
-    Returns pairwise Jensen-Shannon divergence using the provided backend.
+    Returns pairwise Jensen-Shannon divergence using.
 
     Args:
         X: backend tensor with dim (n_samples by n_features)
